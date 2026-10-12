@@ -1,0 +1,48 @@
+name: epa_compliance
+version: "0.1.0"
+config-version: 2
+profile: epa_compliance
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+analysis-paths: ["analyses"]
+target-path: target
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Dates outside [plausible_date_min, today + 1 year] are typos in the source
+  # (years like 0001, 0218, 8888) and are nulled in staging.
+  plausible_date_min: "1900-01-01"
+  # Incremental models reprocess this many days behind their high-water mark,
+  # because EPA backfills late-reported evaluations into the weekly dump.
+  incremental_lookback_days: 90
+  date_spine_start: "1900-01-01"
+  date_spine_end: "2031-01-01"
+
+models:
+  epa_compliance:
+    +persist_docs:
+      relation: true
+      columns: true
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+    semantic:
+      +schema: semantic
+      +materialized: table
+
+snapshots:
+  epa_compliance:
+    +schema: snapshots
+
+data_tests:
+  epa_compliance:
+    +severity: error

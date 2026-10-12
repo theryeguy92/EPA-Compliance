@@ -1,0 +1,347 @@
+version: 2
+models:
+- name: dim_facility
+  description: Current state of every Clean Air Act facility (type 1). For status history see dim_facility_status_history.
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: facility_sk
+    data_type: varchar
+    description: 'Surrogate key: md5 of facility_id.'
+    data_tests: &id001
+    - unique
+    - not_null
+  - name: facility_id
+    data_type: varchar
+    description: ICIS-Air program system ID.
+    data_tests: *id001
+  - name: frs_registry_id
+    data_type: varchar
+  - name: facility_name
+    data_type: varchar
+  - name: street_address
+    data_type: varchar
+  - name: city
+    data_type: varchar
+  - name: county_name
+    data_type: varchar
+  - name: state_code
+    data_type: varchar
+  - name: zip_code
+    data_type: varchar
+  - name: epa_region
+    data_type: varchar
+  - name: sic_codes
+    data_type: varchar
+  - name: naics_codes
+    data_type: varchar
+  - name: facility_type_code
+    data_type: varchar
+  - name: pollutant_class_code
+    data_type: varchar
+  - name: pollutant_class_desc
+    data_type: varchar
+  - name: operating_status_code
+    data_type: varchar
+  - name: operating_status_desc
+    data_type: varchar
+  - name: compliance_status
+    data_type: varchar
+    description: EPA HPV status, e.g. "No Violation Identified", "Unaddressed-State".
+  - name: has_unaddressed_violation
+    data_type: boolean
+    description: True when EPA reports a violation with no enforcement response yet ("Unaddressed-*").
+    data_tests:
+    - not_null
+  - name: local_control_region_name
+    data_type: varchar
+- name: dim_air_program
+  description: Clean Air Act programs (SIP, NSPS, NESHAP, MACT, Title V, ...).
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: program_code
+    data_type: varchar
+    description: ICIS-Air program code, e.g. CAASIP.
+    data_tests: *id001
+  - name: program_desc
+    data_type: varchar
+  - name: facility_enrollment_count
+    data_type: bigint
+- name: dim_date
+  description: Calendar and federal fiscal year (October to September) attributes for every day in the spine.
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: date_day
+    data_type: date
+    description: Calendar date.
+    data_tests: *id001
+  - name: calendar_year
+    data_type: integer
+  - name: calendar_quarter
+    data_type: integer
+  - name: calendar_month
+    data_type: integer
+  - name: month_name
+    data_type: varchar
+  - name: iso_day_of_week
+    data_type: integer
+  - name: is_weekend
+    data_type: boolean
+  - name: federal_fiscal_year
+    data_type: integer
+    description: Federal fiscal year; October 2026 falls in FY2027.
+    data_tests:
+    - not_null
+  - name: federal_fiscal_quarter
+    data_type: integer
+- name: bridge_facility_air_program
+  description: Facility enrollment in air programs; resolves the many-to-many between dim_facility and dim_air_program.
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: facility_sk
+    data_type: varchar
+    data_tests:
+    - not_null
+    - &id002
+      relationships:
+        arguments:
+          to: ref('dim_facility')
+          field: facility_sk
+  - name: facility_id
+    data_type: varchar
+  - name: program_code
+    data_type: varchar
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_air_program')
+          field: program_code
+  - name: operating_status_code
+    data_type: varchar
+  - name: operating_status_desc
+    data_type: varchar
+  - name: program_begin_date
+    data_type: date
+  - name: program_updated_date
+    data_type: date
+- name: fct_compliance_evaluations
+  description: 'One row per compliance evaluation (FCE or PCE). Incremental: merges on evaluation_sk and reprocesses
+    a lookback window (var incremental_lookback_days) because EPA backfills late evaluations.'
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: evaluation_sk
+    data_type: varchar
+    description: 'Surrogate key: md5 of facility_id and evaluation_id.'
+    data_tests: *id001
+  - name: facility_sk
+    data_type: varchar
+    data_tests:
+    - not_null
+    - *id002
+  - name: facility_id
+    data_type: varchar
+  - name: evaluation_id
+    data_type: varchar
+  - name: evaluation_date
+    data_type: date
+    description: Date the evaluation was completed.
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_day
+  - name: evaluation_category
+    data_type: varchar
+    description: FCE (full) or PCE (partial).
+    data_tests:
+    - accepted_values:
+        arguments:
+          values:
+          - FCE
+          - PCE
+  - name: monitor_type_code
+    data_type: varchar
+  - name: monitor_type_desc
+    data_type: varchar
+  - name: is_on_site
+    data_type: boolean
+  - name: lead_agency
+    data_type: varchar
+    description: Agency that led the evaluation.
+    data_tests:
+    - accepted_values:
+        arguments:
+          values:
+          - EPA
+          - State
+          - Local
+  - name: program_codes
+    data_type: varchar
+  - name: evaluation_purposes
+    data_type: varchar
+  - name: source_row_count
+    data_type: bigint
+    description: Source rows collapsed into this evaluation (one per stated purpose).
+- name: fct_violations
+  description: One row per HPV or FRV violation determination.
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: violation_sk
+    data_type: varchar
+    description: 'Surrogate key: md5 of violation_id.'
+    data_tests: *id001
+  - name: facility_sk
+    data_type: varchar
+    data_tests:
+    - not_null
+    - *id002
+  - name: facility_id
+    data_type: varchar
+  - name: violation_id
+    data_type: varchar
+  - name: compliance_determination_id
+    data_type: varchar
+  - name: enforcement_response_policy
+    data_type: varchar
+    description: HPV (High Priority Violation) or FRV (Federally Reportable Violation).
+    data_tests:
+    - accepted_values:
+        arguments:
+          values:
+          - HPV
+          - FRV
+  - name: is_high_priority
+    data_type: boolean
+  - name: lead_agency
+    data_type: varchar
+  - name: program_codes
+    data_type: varchar
+  - name: pollutant_descs
+    data_type: varchar
+  - name: identified_date
+    data_type: date
+    description: 'Date the agency formally identified the violation: HPV day zero, else FRV determination date, else discovery date. This is a determination date, not when the violation began.'
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_day
+  - name: hpv_day_zero_date
+    data_type: date
+  - name: discovery_date
+    data_type: date
+  - name: resolved_date
+    data_type: date
+  - name: is_resolved
+    data_type: boolean
+  - name: days_to_resolution
+    data_type: integer
+    description: Days from identified_date to resolved_date; null when unresolved, or when the violation was resolved before it was formally identified.
+    data_tests:
+    - dbt_utils.accepted_range:
+        arguments:
+          min_value: 0
+- name: fct_enforcement_actions
+  description: One row per formal or informal enforcement action. Penalties come from formal actions only and are
+    never summed across duplicate source rows.
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: enforcement_action_sk
+    data_type: varchar
+    description: 'Surrogate key: md5 of facility_id, action_id and action_category.'
+    data_tests: *id001
+  - name: facility_sk
+    data_type: varchar
+    data_tests:
+    - not_null
+    - *id002
+  - name: facility_id
+    data_type: varchar
+  - name: action_id
+    data_type: varchar
+  - name: action_category
+    data_type: varchar
+    description: formal (orders, judicial cases) or informal (notices of violation).
+    data_tests:
+    - not_null
+    - accepted_values:
+        arguments:
+          values:
+          - formal
+          - informal
+  - name: case_number
+    data_type: varchar
+  - name: activity_type_desc
+    data_type: varchar
+  - name: enforcement_type_code
+    data_type: varchar
+  - name: enforcement_type_desc
+    data_type: varchar
+  - name: lead_agency
+    data_type: varchar
+  - name: action_date
+    data_type: date
+    description: Settlement date for formal actions, achieved date for informal ones.
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_day
+  - name: penalty_amount
+    data_type: decimal(18,2)
+    description: Assessed penalty in USD; null for informal actions.
+    data_tests:
+    - dbt_utils.accepted_range:
+        arguments:
+          min_value: 0
+  - name: has_conflicting_penalty_records
+    data_type: boolean
+    description: True when the source repeats the action with different penalty amounts; penalty_amount is the largest.
+    data_tests:
+    - not_null
+  - name: is_official
+    data_type: boolean
+- name: dim_facility_status_history
+  description: Type 2 history of facility operating and compliance status, built from snap_facility_compliance_status.
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: facility_sk
+    data_type: varchar
+    data_tests:
+    - not_null
+  - name: facility_id
+    data_type: varchar
+  - name: operating_status_code
+    data_type: varchar
+  - name: operating_status_desc
+    data_type: varchar
+  - name: compliance_status
+    data_type: varchar
+  - name: pollutant_class_code
+    data_type: varchar
+  - name: valid_from
+    data_type: timestamp
+    description: Start of the period this status held.
+    data_tests:
+    - not_null
+  - name: valid_to
+    data_type: timestamp
+    description: End of the period; null for the current row.
+  - name: is_current
+    data_type: boolean

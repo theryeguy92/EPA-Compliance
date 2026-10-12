@@ -1,0 +1,58 @@
+version: 2
+models:
+- name: facility_compliance_summary
+  description: 'One row per facility: evaluation coverage, violation history and enforcement outcomes.'
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: facility_sk
+    data_type: varchar
+    data_tests:
+    - unique
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_facility')
+          field: facility_sk
+  - name: facility_id
+    data_type: varchar
+  - name: facility_name
+    data_type: varchar
+  - name: state_code
+    data_type: varchar
+  - name: operating_status_desc
+    data_type: varchar
+  - name: pollutant_class_desc
+    data_type: varchar
+  - name: compliance_status
+    data_type: varchar
+  - name: evaluation_count
+    data_type: bigint
+  - name: full_evaluation_count
+    data_type: bigint
+  - name: last_evaluation_date
+    data_type: date
+  - name: last_full_evaluation_date
+    data_type: date
+  - name: days_since_last_full_evaluation
+    data_type: integer
+    description: Days since the last FCE, as of the build date.
+  - name: violation_count
+    data_type: bigint
+  - name: hpv_count
+    data_type: bigint
+  - name: open_hpv_count
+    data_type: bigint
+    description: High Priority Violations with no resolved date.
+  - name: last_violation_identified_date
+    data_type: date
+  - name: formal_action_count
+    data_type: bigint
+  - name: informal_action_count
+    data_type: bigint
+  - name: total_penalties
+    data_type: decimal(18,2)
+    description: Sum of formal-action penalties in USD.
+  - name: last_enforcement_date
+    data_type: date

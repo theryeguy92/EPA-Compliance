@@ -1,0 +1,16 @@
+# Profiles live in the repo (DBT_PROFILES_DIR=profiles) because DuckDB needs
+# no credentials: the warehouse is a local file. Override the path per run
+# with DUCKDB_PATH.
+epa_compliance:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', 'data/warehouse/epa.duckdb') }}"
+      threads: 1
+    ci:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', 'data/warehouse/ci.duckdb') }}"
+      # One thread: concurrent writers on a single DuckDB file stalled for
+      # minutes in testing. The CI sample builds in under a minute serially.
+      threads: 1

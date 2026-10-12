@@ -1,0 +1,9 @@
+version: 2
+
+models:
+  - name: int_enforcement_actions__unioned
+    description: Formal and informal enforcement actions in one shape, ahead of fct_enforcement_actions.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [facility_id, action_id, action_category]

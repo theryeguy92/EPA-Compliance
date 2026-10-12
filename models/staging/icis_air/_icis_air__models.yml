@@ -1,0 +1,154 @@
+version: 2
+
+models:
+  - name: stg_icis_air__facilities
+    description: Clean Air Act facilities, renamed and trimmed. One row per facility.
+    columns:
+      - name: facility_id
+        description: ICIS-Air program system ID (PGM_SYS_ID).
+        data_tests: [unique, not_null]
+      - name: state_code
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: compliance_status
+        description: >
+          Current HPV status as published by EPA, e.g. "No Violation Identified",
+          "Violation-Unresolved", "Unaddressed-State".
+
+  - name: stg_icis_air__facility_programs
+    description: Facility enrollment in Clean Air Act programs. One row per facility and program.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [facility_id, program_code]
+    columns:
+      - name: facility_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_icis_air__facilities')
+                field: facility_id
+      - name: program_code
+        data_tests: [not_null]
+
+  - name: stg_icis_air__evaluations
+    description: >
+      Full and partial compliance evaluations, one row per evaluation. The
+      source repeats an evaluation once per purpose; purposes are kept in
+      evaluation_purposes and source_row_count records how many rows collapsed.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [facility_id, evaluation_id]
+    columns:
+      - name: evaluation_id
+        data_tests: [not_null]
+      - name: lead_agency
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [EPA, State, Local]
+      - name: evaluation_category
+        description: FCE (full compliance evaluation) or PCE (partial compliance evaluation).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [FCE, PCE]
+
+  - name: stg_icis_air__violations
+    description: HPV and FRV violation determinations. One row per violation.
+    columns:
+      - name: violation_id
+        data_tests: [unique, not_null]
+      - name: enforcement_response_policy
+        description: HPV (High Priority Violation) or FRV (Federally Reportable Violation).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [HPV, FRV]
+      - name: lead_agency
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [EPA, State, Local, Other]
+      - name: resolved_date
+        description: Date the violation was resolved (HPV_RESOLVED_DATE; populated for FRVs too).
+
+  - name: stg_icis_air__formal_actions
+    description: >
+      Formal enforcement actions, one row per facility and action. Repeated
+      rows are collapsed: penalty_amount is the largest assessed amount and
+      has_conflicting_penalty_records flags actions whose rows disagree.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [facility_id, action_id]
+    columns:
+      - name: penalty_amount
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+
+  - name: stg_icis_air__informal_actions
+    description: Informal enforcement actions with exact duplicate rows removed.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [facility_id, action_id]
+
+unit_tests:
+  - name: test_evaluations_collapse_purposes_and_parse_dates
+    description: One evaluation spread over two purpose rows becomes one row; MM-DD-YYYY parses.
+    model: stg_icis_air__evaluations
+    given:
+      - input: source('icis_air', 'icis_air_evaluations')
+        rows:
+          - {pgm_sys_id: "F1", activity_id: "100", state_epa_flag: "E", comp_monitor_type_code: "PCE",
+             comp_monitor_type_desc: "PCE On-Site", actual_end_date: "05-20-2016", program_codes: "CAANSPS",
+             activity_purpose_desc: "Citizen Complaint/Tip"}
+          - {pgm_sys_id: "F1", activity_id: "100", state_epa_flag: "E", comp_monitor_type_code: "PCE",
+             comp_monitor_type_desc: "PCE On-Site", actual_end_date: "05-20-2016", program_codes: "CAANSPS",
+             activity_purpose_desc: "Applicability Determination"}
+          - {pgm_sys_id: "F2", activity_id: "200", state_epa_flag: "S", comp_monitor_type_code: "FFO",
+             comp_monitor_type_desc: "FCE Off-Site", actual_end_date: "01-02-0218", program_codes: null,
+             activity_purpose_desc: null}
+    expect:
+      rows:
+        - {facility_id: "F1", evaluation_id: "100", lead_agency: "EPA", evaluation_date: "2016-05-20",
+           evaluation_purposes: "Applicability Determination; Citizen Complaint/Tip", source_row_count: 2,
+           evaluation_category: "PCE", is_on_site: true}
+        - {facility_id: "F2", evaluation_id: "200", lead_agency: "State", evaluation_date: null,
+           evaluation_purposes: null, source_row_count: 1, evaluation_category: "FCE", is_on_site: false}
+
+  - name: test_formal_actions_conflicting_penalties_not_summed
+    description: Conflicting penalty rows keep the max (never the sum) and are flagged; MM/DD/YYYY parses.
+    model: stg_icis_air__formal_actions
+    given:
+      - input: source('icis_air', 'icis_air_formal_actions')
+        rows:
+          - {pgm_sys_id: "F1", activity_id: "9", enf_identifier: "TX-1", activity_type_code: "AFR",
+             activity_type_desc: "Administrative - Formal", state_epa_flag: "S", enf_type_code: "SCAAAO",
+             enf_type_desc: "Administrative Order", settlement_entered_date: "10/20/2001", penalty_amount: "2602"}
+          - {pgm_sys_id: "F1", activity_id: "9", enf_identifier: "TX-1", activity_type_code: "AFR",
+             activity_type_desc: "Administrative - Formal", state_epa_flag: "S", enf_type_code: "SCAAAO",
+             enf_type_desc: "Administrative Order", settlement_entered_date: "10/20/2001", penalty_amount: "2631"}
+          - {pgm_sys_id: "F2", activity_id: "7", enf_identifier: "06-2019-3319", activity_type_code: "AFR",
+             activity_type_desc: "Administrative - Formal", state_epa_flag: "E", enf_type_code: "113A",
+             enf_type_desc: "CAA 113A Admin Compliance Order (Non-Penalty)", settlement_entered_date: "05/06/2019",
+             penalty_amount: "0"}
+          - {pgm_sys_id: "F2", activity_id: "7", enf_identifier: "06-2019-3319", activity_type_code: "AFR",
+             activity_type_desc: "Administrative - Formal", state_epa_flag: "E", enf_type_code: "113",
+             enf_type_desc: "CAA 113 Notice Of Violation", settlement_entered_date: "05/06/2019", penalty_amount: "0"}
+    expect:
+      rows:
+        - {facility_id: "F1", action_id: "9", settlement_date: "2001-10-20", penalty_amount: 2631,
+           has_conflicting_penalty_records: true, primary_enforcement_type_code: "SCAAAO",
+           enforcement_type_codes: "SCAAAO", source_row_count: 2}
+        - {facility_id: "F2", action_id: "7", settlement_date: "2019-05-06", penalty_amount: 0,
+           has_conflicting_penalty_records: false, primary_enforcement_type_code: "113",
+           enforcement_type_codes: "113; 113A", source_row_count: 2}

@@ -1,0 +1,13 @@
+snapshots:
+  - name: snap_facility_compliance_status
+    description: >
+      Type 2 history of each facility's operating status, compliance (HPV)
+      status and pollutant class. EPA publishes only the current state, so
+      this snapshot is the only record of how a facility's status changed
+      between weekly loads. Run `dbt snapshot` after every ingest.
+    relation: ref('stg_icis_air__facilities')
+    config:
+      unique_key: facility_id
+      strategy: check
+      check_cols: [operating_status_code, compliance_status, pollutant_class_code]
+      hard_deletes: invalidate

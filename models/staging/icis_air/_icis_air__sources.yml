@@ -1,0 +1,42 @@
+version: 2
+
+sources:
+  - name: icis_air
+    description: >
+      EPA ICIS-Air, the Integrated Compliance Information System for the Clean
+      Air Act, from the ECHO bulk downloads (https://echo.epa.gov/tools/data-downloads).
+      EPA republishes the full export weekly. Loaded by ingest/ingest.py as
+      all-varchar tables; every type decision happens in staging.
+    schema: raw
+    loaded_at_field: _loaded_at
+    config:
+      freshness:
+        # EPA refreshes weekly, so a load older than 8 days means a missed run.
+        warn_after: {count: 8, period: day}
+        error_after: {count: 15, period: day}
+    tables:
+      - name: icis_air_facilities
+        description: One row per Clean Air Act facility (ICIS-AIR_FACILITIES.csv).
+        columns:
+          - name: pgm_sys_id
+            description: ICIS-Air program system ID, the facility's natural key.
+            data_tests: [unique, not_null]
+      - name: icis_air_programs
+        description: Facility enrollment in air programs such as SIP, NSPS and MACT (ICIS-AIR_PROGRAMS.csv).
+      - name: icis_air_evaluations
+        description: >
+          Full and partial compliance evaluations (FCEs and PCEs) (ICIS-AIR_FCES_PCES.csv).
+          One evaluation can appear on several rows, one per stated purpose.
+      - name: icis_air_violations
+        description: High Priority Violations (HPV) and Federally Reportable Violations (FRV) (ICIS-AIR_VIOLATION_HISTORY.csv).
+        columns:
+          - name: activity_id
+            data_tests: [unique, not_null]
+      - name: icis_air_formal_actions
+        description: >
+          Formal enforcement actions: administrative orders and judicial cases (ICIS-AIR_FORMAL_ACTIONS.csv).
+          Some actions repeat with conflicting penalty amounts or several enforcement types.
+      - name: icis_air_informal_actions
+        description: >
+          Informal enforcement actions such as notices of violation (ICIS-AIR_INFORMAL_ACTIONS.csv).
+          About half of the rows are exact duplicates.

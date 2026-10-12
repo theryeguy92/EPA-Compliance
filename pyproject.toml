@@ -1,0 +1,12 @@
+[project]
+name = "epa-compliance"
+version = "0.1.0"
+description = "dbt + DuckDB warehouse over EPA ICIS-Air (Clean Air Act) compliance data"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "dbt-core>=1.12,<1.13",
+    "dbt-duckdb>=1.9",
+    "duckdb>=1.3",
+    "sqlfluff>=3.4",
+    "sqlfluff-templater-dbt>=3.4",
+]

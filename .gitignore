@@ -1,0 +1,18 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# dbt
+target/
+dbt_packages/
+logs/
+
+# Data: raw downloads and local warehouses are rebuilt from source.
+# data/sample/ is committed so CI runs without hitting EPA servers.
+data/raw/
+data/warehouse/*.duckdb
+data/warehouse/*.duckdb.wal
+
+# dbt writes an anonymous user id here
+profiles/.user.yml

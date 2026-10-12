@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DBT_PROFILES_DIR: profiles
+  DUCKDB_PATH: data/warehouse/ci.duckdb
+  DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+
+jobs:
+  lint:
+    name: Lint SQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run dbt deps
+      # The dbt templater compiles models against a real warehouse, so load the sample first.
+      - run: uv run python ingest/ingest.py --source sample
+      - run: uv run sqlfluff lint models tests
+
+  build:
+    name: dbt build (Tennessee sample)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run dbt deps
+
+      - name: Load sample data (schema-drift check included)
+        run: uv run python ingest/ingest.py --source sample
+
+      - name: Source freshness
+        run: uv run dbt source freshness --target ci
+
+      - name: Build, test and snapshot
+        run: uv run dbt build --target ci
+
+      - name: Second run exercises the incremental merge path
+        run: uv run dbt run --target ci --select config.materialized:incremental
+
+      - name: Upload dbt artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-artifacts
+          path: |
+            target/manifest.json
+            target/run_results.json
+            target/sources.json
+          retention-days: 14

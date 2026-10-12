@@ -1,0 +1,24 @@
+version: 2
+
+# Semantic layer (dbt Semantic Layer / MetricFlow).
+#
+# The time spine below is in place; semantic models and metrics are
+# intentionally empty and get defined on top of the marts. A first set:
+#
+#   semantic model  fct_enforcement_actions  -> metric: total_penalties, formal_action_count
+#   semantic model  fct_violations           -> metric: hpv_count, median_days_to_resolution
+#   semantic model  fct_compliance_evaluations -> metric: fce_count, on_site_evaluation_rate
+#
+# Each semantic model declares entities (facility), dimensions
+# (action_date, lead_agency, state_code) and measures; metrics are then
+# defined once here and queried with `mf query` or any Semantic Layer client.
+
+models:
+  - name: metricflow_time_spine
+    description: One row per day; the time spine MetricFlow joins metrics against.
+    time_spine:
+      standard_granularity_column: date_day
+    columns:
+      - name: date_day
+        granularity: day
+        data_tests: [unique, not_null]
