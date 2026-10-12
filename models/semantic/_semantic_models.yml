@@ -2,16 +2,10 @@ version: 2
 
 # Semantic layer (dbt Semantic Layer / MetricFlow).
 #
-# The time spine below is in place; semantic models and metrics are
-# intentionally empty and get defined on top of the marts. A first set:
-#
-#   semantic model  fct_enforcement_actions  -> metric: total_penalties, formal_action_count
-#   semantic model  fct_violations           -> metric: hpv_count, median_days_to_resolution
-#   semantic model  fct_compliance_evaluations -> metric: fce_count, on_site_evaluation_rate
-#
-# Each semantic model declares entities (facility), dimensions
-# (action_date, lead_agency, state_code) and measures; metrics are then
-# defined once here and queried with `mf query` or any Semantic Layer client.
+# Semantic models sit on the contracted marts and declare entities, dimensions
+# and measures. Metrics are defined once, below, and queried with `mf query`
+# (or any Semantic Layer client), so "total penalties" or "HPV count" has one
+# definition no matter who asks or how it is sliced.
 
 models:
   - name: metricflow_time_spine
@@ -22,3 +16,181 @@ models:
       - name: date_day
         granularity: day
         data_tests: [unique, not_null]
+
+semantic_models:
+  - name: facility
+    description: Facility attributes, shared by every fact through the facility entity.
+    model: ref('dim_facility')
+    entities:
+      - name: facility
+        type: primary
+        expr: facility_sk
+    dimensions:
+      - name: state_code
+        type: categorical
+      - name: epa_region
+        type: categorical
+      - name: pollutant_class_desc
+        type: categorical
+      - name: operating_status_desc
+        type: categorical
+      - name: compliance_status
+        type: categorical
+
+  - name: enforcement_action
+    description: Formal and informal enforcement actions, one row per action.
+    model: ref('fct_enforcement_actions')
+    defaults:
+      agg_time_dimension: action_date
+    entities:
+      - name: enforcement_action
+        type: primary
+        expr: enforcement_action_sk
+      - name: facility
+        type: foreign
+        expr: facility_sk
+    dimensions:
+      - name: action_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: action_category
+        type: categorical
+      - name: lead_agency
+        type: categorical
+      - name: enforcement_type_desc
+        type: categorical
+    measures:
+      - name: penalty_amount_total
+        description: Sum of the deduplicated per-action penalty (largest of conflicting source records, never summed).
+        agg: sum
+        expr: penalty_amount
+      - name: enforcement_actions
+        agg: count
+        expr: enforcement_action_sk
+
+  - name: violation
+    description: Clean Air Act violations (HPV and FRV), one row per violation.
+    model: ref('fct_violations')
+    defaults:
+      agg_time_dimension: identified_date
+    entities:
+      - name: violation
+        type: primary
+        expr: violation_sk
+      - name: facility
+        type: foreign
+        expr: facility_sk
+    dimensions:
+      - name: identified_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: is_high_priority
+        type: categorical
+      - name: is_resolved
+        type: categorical
+      - name: lead_agency
+        type: categorical
+    measures:
+      - name: violations
+        agg: count
+        expr: violation_sk
+      - name: days_to_resolution_median
+        description: Median days from identification to resolution; violations resolved before they were identified are excluded upstream (null).
+        agg: median
+        expr: days_to_resolution
+
+  - name: compliance_evaluation
+    description: Full and partial compliance evaluations, one row per evaluation.
+    model: ref('fct_compliance_evaluations')
+    defaults:
+      agg_time_dimension: evaluation_date
+    entities:
+      - name: compliance_evaluation
+        type: primary
+        expr: evaluation_sk
+      - name: facility
+        type: foreign
+        expr: facility_sk
+    dimensions:
+      - name: evaluation_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: evaluation_category
+        type: categorical
+      - name: is_on_site
+        type: categorical
+      - name: lead_agency
+        type: categorical
+    measures:
+      - name: evaluations
+        agg: count
+        expr: evaluation_sk
+      - name: on_site_evaluations
+        agg: sum
+        expr: case when is_on_site then 1 else 0 end
+
+metrics:
+  - name: total_penalties
+    label: Total penalties (USD)
+    description: Assessed penalties across enforcement actions, deduplicated so conflicting source records are not double counted.
+    type: simple
+    type_params:
+      measure: penalty_amount_total
+
+  - name: enforcement_action_count
+    label: Enforcement actions
+    type: simple
+    type_params:
+      measure: enforcement_actions
+
+  - name: formal_action_count
+    label: Formal enforcement actions
+    description: Orders and judicial cases, excluding notices of violation.
+    type: simple
+    type_params:
+      measure: enforcement_actions
+    filter: |
+      {{ Dimension('enforcement_action__action_category') }} = 'formal'
+
+  - name: violation_count
+    label: Violations
+    type: simple
+    type_params:
+      measure: violations
+
+  - name: hpv_count
+    label: High priority violations
+    type: simple
+    type_params:
+      measure: violations
+    filter: |
+      {{ Dimension('violation__is_high_priority') }}
+
+  - name: median_days_to_resolution
+    label: Median days to resolution
+    type: simple
+    type_params:
+      measure: days_to_resolution_median
+
+  - name: evaluation_count
+    label: Compliance evaluations
+    type: simple
+    type_params:
+      measure: evaluations
+
+  - name: on_site_evaluation_count
+    label: On-site compliance evaluations
+    type: simple
+    type_params:
+      measure: on_site_evaluations
+
+  - name: on_site_evaluation_rate
+    label: On-site evaluation rate
+    description: Share of compliance evaluations performed on site.
+    type: ratio
+    type_params:
+      numerator: on_site_evaluation_count
+      denominator: evaluation_count

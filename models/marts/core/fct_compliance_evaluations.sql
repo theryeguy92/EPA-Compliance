@@ -13,8 +13,8 @@ with evaluations as (
         -- EPA backfills late-reported evaluations, so reprocess a lookback
         -- window behind the current high-water mark instead of only new dates.
         where evaluation_date >= (
-            select max(evaluation_date) - interval {{ var('incremental_lookback_days') }} day
-            from {{ this }}
+            select max(current_fct.evaluation_date) - interval {{ var('incremental_lookback_days') }} day
+            from {{ this }} as current_fct
         )
         or evaluation_date is null
     {% endif %}

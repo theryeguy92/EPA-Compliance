@@ -55,6 +55,12 @@ jobs:
       - name: Second run exercises the incremental merge path
         run: uv run dbt run --target ci --select config.materialized:incremental
 
+      - name: Validate the semantic layer against the warehouse
+        run: uv run mf validate-configs
+
+      - name: Query metrics end to end
+        run: uv run mf query --metrics total_penalties,hpv_count --group-by metric_time__year --order -metric_time__year --limit 5
+
       - name: Upload dbt artifacts
         if: always()
         uses: actions/upload-artifact@v4

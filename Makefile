@@ -2,7 +2,7 @@
 export DBT_PROFILES_DIR := profiles
 UV := uv run
 
-.PHONY: setup ingest ingest-sample build test docs lint fmt ci clean
+.PHONY: setup ingest ingest-sample build test docs metrics lint fmt ci clean
 
 setup:            ## install Python deps and dbt packages
 	uv sync
@@ -25,6 +25,10 @@ docs:             ## build and serve the docs site locally
 	$(UV) dbt docs generate
 	$(UV) dbt docs serve
 
+metrics:          ## validate the semantic layer and query a sample of metrics
+	$(UV) mf validate-configs
+	$(UV) mf query --metrics total_penalties,formal_action_count --group-by metric_time__year --order -metric_time__year --limit 5
+
 lint:             ## lint SQL (needs a loaded warehouse for the dbt templater)
 	DUCKDB_PATH=data/warehouse/ci.duckdb $(UV) sqlfluff lint models tests
 
@@ -34,6 +38,7 @@ fmt:              ## auto-fix lint issues
 ci: ingest-sample ## reproduce the CI build locally
 	DUCKDB_PATH=data/warehouse/ci.duckdb $(UV) dbt source freshness --target ci
 	DUCKDB_PATH=data/warehouse/ci.duckdb $(UV) dbt build --target ci
+	DUCKDB_PATH=data/warehouse/ci.duckdb $(UV) mf validate-configs
 	DUCKDB_PATH=data/warehouse/ci.duckdb $(UV) sqlfluff lint models tests
 
 clean:

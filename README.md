@@ -6,7 +6,7 @@ A dbt + DuckDB warehouse over EPA's public **ICIS-Air** data: every Clean Air Ac
 |---|---|
 | **Source** | [EPA ECHO bulk downloads](https://echo.epa.gov/tools/data-downloads), ICIS-Air export, refreshed weekly |
 | **Scale** | 280K facilities · 1.8M evaluations · 103K violations · 283K enforcement actions |
-| **Stack** | dbt-core 1.12 · DuckDB · dbt_utils · sqlfluff · GitHub Actions · uv |
+| **Stack** | dbt-core 1.12 · DuckDB · MetricFlow · dbt_utils · sqlfluff · GitHub Actions · uv |
 | **Tests** | 92 checks per build: generic, singular, reconciliation, and unit tests |
 
 ## Why this dataset
@@ -36,7 +36,7 @@ flowchart LR
     INT --> MARTS
     SNAP --> MARTS[marts<br/>contracted star schema]
     MARTS --> SUM[facility_compliance_summary]
-    MARTS --> SEM[semantic<br/>MetricFlow time spine]
+    MARTS --> SEM[semantic layer<br/>MetricFlow metrics]
 ```
 
 **Extract and load** (`ingest/ingest.py`) downloads the export, compares each file's header to `ingest/expected_schemas.json`, and stops with the added and removed column names if EPA changed a layout. It then loads all-varchar tables into `raw` with `_loaded_at` and `_source_file` audit columns. Every type decision happens in dbt.
@@ -59,7 +59,22 @@ flowchart LR
 
 **Snapshot.** EPA publishes only each facility's *current* status. `snap_facility_compliance_status` (check strategy on operating status, HPV status, and pollutant class) keeps the history between weekly loads.
 
-**Semantic layer.** `models/semantic/` contains the MetricFlow time spine. Semantic models and metrics are not defined yet; the planned first set is listed in `_semantic_models.yml`.
+**Semantic layer.** `models/semantic/_semantic_models.yml` defines MetricFlow semantic models on the four core marts, joined through a shared `facility` entity, and nine metrics defined once:
+
+| Metric | Type | Definition |
+|---|---|---|
+| `total_penalties` | simple | Deduplicated assessed penalties (never sums conflicting source records) |
+| `enforcement_action_count` / `formal_action_count` | simple, filtered | All actions / orders and judicial cases only |
+| `violation_count` / `hpv_count` | simple, filtered | All violations / high priority violations |
+| `median_days_to_resolution` | simple (median) | Identification to resolution; negative durations excluded upstream |
+| `evaluation_count` / `on_site_evaluation_count` | simple | Compliance evaluations |
+| `on_site_evaluation_rate` | ratio | On-site share of evaluations |
+
+Any metric can be sliced by time grain or by facility attributes (state, EPA region, pollutant class) without redefining it:
+
+```bash
+uv run mf query --metrics hpv_count,median_days_to_resolution --group-by facility__epa_region
+```
 
 ## Testing
 
@@ -80,6 +95,7 @@ Each `dbt build` runs:
 3. `dbt source freshness`
 4. `dbt build`: models, snapshot, and all tests
 5. A second incremental run, to exercise the `merge` path and not only the first build
+6. `mf validate-configs` checks every semantic model, dimension, measure, and metric against the built warehouse, then a metric is queried end to end
 
 `.github/workflows/docs.yml` publishes the dbt docs site, with the lineage graph, to GitHub Pages on every push to `main`.
 
@@ -94,6 +110,7 @@ make setup     # Python deps + dbt packages
 make ingest    # download the ICIS-Air export (~70 MB) and load data/warehouse/epa.duckdb
 make build     # freshness, models, snapshot, tests
 make docs      # browse models and lineage at localhost:8080
+make metrics   # validate the semantic layer and query metrics
 ```
 
 To reproduce CI locally on the sample:
@@ -113,7 +130,7 @@ models/staging/      one model per source table
 models/intermediate/ formal + informal enforcement union
 models/marts/core/   contracted star schema
 models/marts/compliance/  facility-level summary
-models/semantic/     MetricFlow time spine (semantic models to come)
+models/semantic/     MetricFlow semantic models, metrics, time spine
 snapshots/           facility status SCD2
 tests/singular/      reconciliation and data-quality warnings
 macros/              date parsing, agency decoding, schema naming
@@ -121,7 +138,6 @@ macros/              date parsing, agency decoding, schema naming
 
 ## Roadmap
 
-- Semantic models and metrics: penalties, HPV counts, time to resolution, FCE coverage
 - Clean Water Act (ICIS-NPDES) and RCRA hazardous waste, sharing `dim_facility` through the FRS registry ID
 - An agent that answers compliance questions through the semantic layer, evaluated against a set of questions with known answers
 
