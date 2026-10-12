@@ -1,4 +1,4 @@
-# EPA Clean Air Act Compliance Warehouse
+# EPA Clean Air Act Compliance Warehouse 
 
 A dbt + DuckDB warehouse over EPA's public **ICIS-Air** data: every Clean Air Act facility in the United States, its compliance evaluations, violations, and enforcement actions. It is modeled into a tested star schema with type 2 history, contracted marts, and CI on every pull request.
 
